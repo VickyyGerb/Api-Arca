@@ -59,11 +59,25 @@ async function generarCertificado({ CUIT, CUIL, clave }) {
   await loginPage
     .getByRole("combobox", { name: "Buscador" })
     .fill("certificados dig");
-  const adminPopupPromise = loginPage.waitForEvent("popup");
-  await loginPage.getByRole("link", { name: "Administración de" }).click();
-  const adminPage = await adminPopupPromise;
 
-  await adminPage.locator("#cmdIngresar").click();
+  // Preparar promesa del popup antes de hacer click
+  const adminPopupPromise = loginPage.context().waitForEvent("page");
+
+  // Click en el link que abre el popup
+  await loginPage.getByRole("link", { name: "Administración de" }).click();
+
+  // Capturar la nueva página (popup)
+  const adminPage = await adminPopupPromise;
+  await adminPage.waitForLoadState();
+  console.log("✅ Popup 'Administración de' abierto correctamente");
+
+  if (await adminPage.locator(".roboto-font modal-title").isVisible()) {
+    await adminPage.getByRole("button", { name: "Continuar" }).click();
+    console.log("✅ Modal 'Continuar' manejado correctamente");
+  }
+  // Continuar flujo normal
+  await flowPage.locator("#cmdIngresar").click();
+
   await adminPage.waitForTimeout(2000);
 
   // ===== Crear alias y subir CSR =====
