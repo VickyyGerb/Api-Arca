@@ -7,20 +7,18 @@ import path from "path";
 const app = express();
 app.use(express.json());
 
-// === Función que ejecuta todo el flujo ===
+// === Función que ejecuta el flujo completo ===
 async function generarCertificado({ CUIT, CUIL, clave }) {
   const año = new Date().getFullYear();
   const csrsFolder = path.join(process.cwd(), "csrs");
   if (!fs.existsSync(csrsFolder)) fs.mkdirSync(csrsFolder, { recursive: true });
 
-  const browser = await chromium.launch({ headless: false }); // poner true en server
+  const browser = await chromium.launch({ headless: false }); // cambiar a true en server
   const context = await browser.newContext();
   const page = await context.newPage();
 
-  // === Ir a AFIP ===
+  // === LOGIN AFIP ===
   await page.goto("https://www.afip.gob.ar/landing/default.asp");
-
-  // === Login ===
   const loginPopupPromise = page.waitForEvent("popup");
   await page.getByRole("link", { name: "Iniciar sesión" }).click();
   const loginPage = await loginPopupPromise;
@@ -30,16 +28,23 @@ async function generarCertificado({ CUIT, CUIL, clave }) {
   await loginPage.locator('input[type="password"]:visible').fill(clave);
   await loginPage.getByRole("button", { name: "Ingresar" }).click();
 
-  // === Obtener razón social ===
-  const razonSocial = (await loginPage
-    .locator("nav#cabeceraAFIPlogoNegro strong.text-primary")
-    .textContent())?.trim();
+  const razonSocial = (
+    await loginPage
+      .locator("nav#cabeceraAFIPlogoNegro strong.text-primary")
+      .textContent()
+  )?.trim();
 
   if (!razonSocial) throw new Error("No se pudo obtener la razón social.");
   const razonSocial2 = razonSocial.replace(/\s+/g, "_");
 
-  const clavePrivada = path.join(csrsFolder, `MiClavePrivada_${razonSocial2}_${año}.key`);
-  const csrPath = path.join(csrsFolder, `MiPedidoCSR_${razonSocial2}_${año}.csr`);
+  const clavePrivada = path.join(
+    csrsFolder,
+    `MiClavePrivada_${razonSocial2}_${año}.key`
+  );
+  const csrPath = path.join(
+    csrsFolder,
+    `MiPedidoCSR_${razonSocial2}_${año}.csr`
+  );
 
   // === Generar clave privada y CSR ===
   execSync(`openssl genrsa -out "${clavePrivada}" 2048`);
@@ -49,83 +54,111 @@ async function generarCertificado({ CUIT, CUIL, clave }) {
       `-out "${csrPath}"`
   );
 
-  // === Administración de certificados digitales ===
-  await loginPage.getByRole('link', { name: 'Administración de Certificados Digitales' }).click();
-  await loginPage.waitForTimeout(2000);
+  await loginPage
+    .getByRole("combobox", { name: "Buscador" })
+    .fill("certificados dig");
 
-  // === Manejo modal "Agregar Servicio" dentro de iframe ===
+  await loginPage.waitForTimeout(1000);
+
+  // Click en Administración de Certificados (NO esperar popup todavía)
   try {
-    console.log("🔍 Buscando modal 'Agregar Servicio' dentro de iframe...");
-
-    // Ajusta la URL o nombre del iframe según corresponda
-    const modalFrame = page.frames().find(f => f.url().includes('certificados'));
-    
-    if (modalFrame) {
-      const boton = modalFrame.locator('button', { hasText: 'Continuar' }).first();
-      if ((await boton.count()) > 0) {
-        await boton.click({ force: true });
-        console.log("✅ Botón 'Continuar' clickeado dentro del iframe.");
-        await loginPage.waitForTimeout(2000);
-      } else {
-        console.log("ℹ️ Botón 'Continuar' no apareció en el iframe, seguimos flujo.");
-      }
-    } else {
-      console.log("ℹ️ No se encontró iframe del modal, seguimos flujo normal.");
-    }
-  } catch (e) {
-    console.log("⚠️ Error manejando el modal en iframe, seguimos flujo:", e);
+    await loginPage.getByRole("link", { name: "Administración de" }).click();
+  } catch (error) {
+    await loginPage.locator('a:has-text("Agregar servicio")').first().click();
   }
 
-  // === Subir CSR y crear alias ===
-  const alias = `CERTIFICADO_${razonSocial2}_${Date.now()}`;
-  await loginPage.locator("#txtAliasCertificado").fill(alias);
-  await loginPage.locator('input[type="file"]').setInputFiles(csrPath);
-  await loginPage.waitForTimeout(1500);
+  await loginPage.waitForTimeout(1000);
 
-  await loginPage.locator("#cmdIngresar").click();
-  await loginPage.waitForTimeout(2000);
+  // === Manejar modal opcional "Agregar Servicio" y popup ===
+  let adminPage;
 
-  const aliasRows = loginPage.locator("table tr td:first-child");
-  await aliasRows.last().waitFor({ state: "visible", timeout: 10000 });
-  const lastAlias = await aliasRows.last().textContent();
-  console.log("Último alias creado:", lastAlias?.trim());
+  const modalContinuar = loginPage.getByRole("button", { name: "Continuar" });
+
+  try {
+    // Espera hasta 5 segundos a que aparezca el botón del modal
+    await modalContinuar.waitFor({ state: "visible", timeout: 5000 });
+    console.log("Modal 'Agregar Servicio' detectado, haciendo click...");
+    await modalContinuar.click({ force: true }); // fuerza el click
+
+    // Esperar popup que se abre tras aceptar el modal
+    try {
+      adminPage = await loginPage.waitForEvent("popup", { timeout: 10000 });
+      console.log("Popup abierto tras aceptar modal");
+    } catch {
+      console.log(
+        "No se abrió popup tras modal, continuando en la misma página..."
+      );
+      adminPage = loginPage; // si no hay popup, seguir en la misma página
+    }
+  } catch {
+    console.log("Modal no apareció, intentando popup directo...");
+    // Si no aparece el modal, esperar popup normal
+    try {
+      adminPage = await loginPage.waitForEvent("popup", { timeout: 10000 });
+      console.log("Popup abierto directamente");
+    } catch {
+      console.log("No se abrió popup, continuando en la misma página...");
+      adminPage = loginPage; // si tampoco hay popup, seguir en la misma página
+    }
+  }
+
+  // Esperar a que la página del admin cargue
+  await adminPage.waitForLoadState("domcontentloaded");
+  await adminPage.waitForTimeout(2000);
+
+  await adminPage.locator("#cmdIngresar").click();
+  await adminPage.waitForTimeout(2000);
+
+  // === Crear alias y subir CSR ===
+  const alias = `CERTIFICADO${razonSocial2}_${Date.now()}`;
+  await adminPage.locator("#txtAliasCertificado").fill(alias);
+  await adminPage.locator('input[type="file"]').setInputFiles(csrPath);
+
+  await adminPage.locator("#cmdIngresar").click();
+  await adminPage.waitForTimeout(2000);
 
   // === Descargar CRT ===
-  await loginPage.getByRole("link", { name: "Ver" }).nth(0).click();
-  await loginPage.waitForTimeout(2000);
-
-  const downloadPromise = loginPage.waitForEvent("download");
-  await loginPage.getByRole("button", { name: "Descargar" }).click();
+  await adminPage.getByRole("link", { name: "Ver" }).nth(0).click();
+  await adminPage.waitForTimeout(2000);
+  const downloadPromise = adminPage.waitForEvent("download");
+  await adminPage.getByRole("button", { name: "Descargar" }).click();
   const download = await downloadPromise;
-
-  const crtPath = path.join(csrsFolder, `CertificadoDN_${razonSocial2}_${año}.crt`);
+  const crtPath = path.join(
+    csrsFolder,
+    `CertificadoDN_${razonSocial2}_${año}.crt`
+  );
   await download.saveAs(crtPath);
-  console.log(`CRT descargado: ${crtPath}`);
 
   // === Generar PFX ===
-  const pfxPath = path.join(csrsFolder, `Certificado_${razonSocial2}_${año}.pfx`);
-  execSync(`openssl pkcs12 -export -out "${pfxPath}" -inkey "${clavePrivada}" -in "${crtPath}" -passout pass:`);
-  console.log(`PFX generado: ${pfxPath}`);
+  const pfxPath = path.join(
+    csrsFolder,
+    `Certificado_${razonSocial2}_${año}.pfx`
+  );
+  execSync(
+    `openssl pkcs12 -export -out "${pfxPath}" -inkey "${clavePrivada}" -in "${crtPath}" -passout pass:`
+  );
 
   await browser.close();
 
   return {
     razonSocial,
+    alias,
     clavePrivada,
     csrPath,
     crtPath,
     pfxPath,
-    alias: lastAlias?.trim(),
-    mensaje: "CSR, CRT y PFX generados correctamente",
+    mensaje: "CSR y PFX generados correctamente",
   };
 }
 
-// === API ===
+// === Endpoint API ===
 app.post("/api/certificado", async (req, res) => {
   try {
     const { CUIT, CUIL, clave } = req.body;
     if (!CUIT || !CUIL || !clave) {
-      return res.status(400).json({ error: "Faltan parámetros: CUIT, CUIL, clave" });
+      return res
+        .status(400)
+        .json({ error: "Faltan parámetros: CUIT, CUIL, clave" });
     }
 
     const resultado = await generarCertificado({ CUIT, CUIL, clave });
@@ -136,7 +169,7 @@ app.post("/api/certificado", async (req, res) => {
   }
 });
 
-// === Iniciar server ===
+// === Iniciar servidor ===
 app.listen(3000, () => {
   console.log("API corriendo en http://localhost:3000");
 });
