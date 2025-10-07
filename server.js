@@ -11,7 +11,7 @@ app.use(express.json());
 async function generarCertificado({ CUIT, CUIL, clave }) {
   const año = new Date().getFullYear();
   const csrsFolder = path.join(process.cwd(), "csrs");
-  if (!fs.existsSync(csrsFolder)) fs.mkdirSync(csrFolder, { recursive: true });
+  if (!fs.existsSync(csrsFolder)) fs.mkdirSync(csrsFolder, { recursive: true });
 
   const browser = await chromium.launch({ headless: false });
   const context = await browser.newContext();
@@ -55,293 +55,217 @@ async function generarCertificado({ CUIT, CUIL, clave }) {
   );
 
   // === Navegación a Administración de Certificados ===
+  console.log("Buscando servicio de certificados digitales...");
+
   await loginPage
     .getByRole("combobox", { name: "Buscador" })
     .fill("certificados digitales");
 
-  await loginPage.waitForTimeout(2000);
+  await loginPage.waitForTimeout(3000);
 
   let adminPage;
 
-  // Estrategia 1: Intentar click directo en el servicio
+  // Estrategia principal: Click en el enlace de certificados
   try {
-    console.log("Buscando servicio de certificados...");
-
-    // Esperar a que aparezcan los resultados
-    await loginPage.waitForTimeout(3000);
-
-    // Intentar diferentes selectores para encontrar el enlace
     const certificadosLink = loginPage
-      .locator(
-        'a:has-text("Administración de Certificados"), a:has-text("Certificados Digitales"), a:has-text("Administración de")'
-      )
+      .locator('a:has-text("Administración de Certificados")')
       .first();
-
     await certificadosLink.waitFor({ state: "visible", timeout: 10000 });
     console.log("Enlace de certificados encontrado, haciendo click...");
 
-    const [popup] = await Promise.all([
-      loginPage.waitForEvent("popup"),
-      certificadosLink.click(),
-    ]);
-
-    adminPage = popup;
-    console.log("Popup abierto exitosamente");
+    // Hacer click y manejar tanto modal como popup
+    await certificadosLink.click();
+    await loginPage.waitForTimeout(2000);
   } catch (error) {
-    console.log("No se pudo abrir via enlace directo:", error.message);
+    console.log("No se encontró el enlace directo, intentando alternativas...");
 
-    // Estrategia 2: Buscar en "Todos los servicios"
+    // Alternativa 1: Buscar por texto parcial
     try {
-      console.log("Intentando via 'Todos los servicios'...");
-      await loginPage
-        .getByRole("link", { name: "Todos los servicios" })
-        .click();
-      await loginPage.waitForTimeout(2000);
-
-      // Buscar certificados en todos los servicios
-      await loginPage
-        .getByRole("textbox", { name: "Buscar" })
-        .fill("certificados digitales");
-      await loginPage.waitForTimeout(2000);
-
-      const servicioLink = loginPage
-        .locator('a:has-text("Administración de Certificados")')
+      const linkAlternativo = loginPage
+        .locator('a:has-text("Administración de")')
         .first();
-      await servicioLink.waitFor({ state: "visible", timeout: 5000 });
-
-      const [popup] = await Promise.all([
-        loginPage.waitForEvent("popup"),
-        servicioLink.click(),
-      ]);
-
-      adminPage = popup;
-      console.log("Popup abierto via todos los servicios");
+      await linkAlternativo.click();
+      await loginPage.waitForTimeout(2000);
     } catch (error2) {
-      console.log("No se pudo abrir via todos los servicios:", error2.message);
-      throw new Error("No se pudo acceder a la administración de certificados");
+      // Alternativa 2: Agregar servicio
+      try {
+        await loginPage
+          .locator('a:has-text("Agregar servicio")')
+          .first()
+          .click();
+        await loginPage.waitForTimeout(2000);
+      } catch (error3) {
+        throw new Error("No se pudo acceder a los certificados digitales");
+      }
     }
   }
 
-  // === Esperar y verificar la página de administración ===
-  await adminPage.waitForLoadState("domcontentloaded");
-  await adminPage.waitForTimeout(3000);
+  // === MANEJO DEL MODAL - ESTRATEGIA MEJORADA ===
+  let modalAparecio = false;
 
-  console.log("URL actual:", adminPage.url());
-  console.log("Título:", await adminPage.title());
-
-  // Verificar si estamos en la página correcta
-  const currentUrl = adminPage.url();
-  if (!currentUrl.includes("afip.gov.ar")) {
-    throw new Error("No se pudo cargar la página de AFIP correctamente");
+  try {
+    // Esperar y manejar el modal de "Agregar Servicio"
+    const modalButton = loginPage.getByRole("button", { name: "Continuar" });
+    await modalButton.waitFor({ state: "visible", timeout: 5000 });
+    console.log("Modal detectado, haciendo click en Continuar...");
+    await modalButton.click();
+    modalAparecio = true;
+    await loginPage.waitForTimeout(2000);
+  } catch (error) {
+    console.log("No apareció el modal, continuando...");
   }
 
-  // === Manejar diferentes escenarios en la página de administración ===
+  // === MANEJO DEL POPUP - ESTRATEGIA MEJORADA ===
   try {
-    // Esperar a que cargue algún elemento identificable de la página
-    await adminPage.waitForTimeout(5000);
+    // Esperar el popup de administración (con timeout más largo)
+    adminPage = await loginPage.waitForEvent("popup", { timeout: 15000 });
+    console.log("Popup de administración abierto correctamente");
+  } catch (error) {
+    console.log(
+      "No se abrió popup, verificando si estamos en la página correcta..."
+    );
 
-    // Buscar el botón de ingresar con diferentes selectores
-    const ingresarSelectors = [
+    // Si no hay popup, verificar en qué página estamos
+    const currentUrl = loginPage.url();
+    console.log("URL actual después del click:", currentUrl);
+
+    // Verificar si estamos en una página de administración
+    if (currentUrl.includes("certificados") || currentUrl.includes("cot")) {
+      console.log(
+        "Ya estamos en la página de certificados, usando página actual"
+      );
+      adminPage = loginPage;
+    } else {
+      // Intentar navegar manualmente a la página de certificados
+      console.log("Navegando manualmente a la página de certificados...");
+      await loginPage.goto(
+        "https://serviciosweb.afip.gob.ar/clavefiscal/adminrel/verCertificado.aspx"
+      );
+      adminPage = loginPage;
+      const pages = context.pages();
+      await pages[2].close();
+    }
+  }
+
+  // === VERIFICACIÓN DE LA PÁGINA DE ADMINISTRACIÓN ===
+  await adminPage.waitForLoadState("domcontentloaded");
+  await adminPage.waitForTimeout(5000);
+
+  console.log("URL de administración:", adminPage.url());
+  console.log("Título:", await adminPage.title());
+
+  // Verificar si estamos en una página de error
+  if ((await adminPage.locator('text="No se puede encontrar"').count()) > 0) {
+    throw new Error("La página de administración no cargó correctamente");
+  }
+
+  // === INTERACCIÓN CON LA PÁGINA DE ADMINISTRACIÓN ===
+  try {
+    // Esperar a que los elementos estén disponibles
+    await adminPage.waitForTimeout(3000);
+
+    // Buscar el botón de ingresar con múltiples estrategias
+    const botonesIngresar = [
       "#cmdIngresar",
       'input[type="submit"][value*="Ingresar"]',
       'button:has-text("Ingresar")',
       'a:has-text("Ingresar")',
       'input[value="Ingresar"]',
-      '.btn:has-text("Ingresar")',
-      'button[onclick*="ingresar"]',
     ];
 
-    let ingresarButtonFound = false;
+    let botonEncontrado = false;
 
-    for (const selector of ingresarSelectors) {
-      try {
-        const button = adminPage.locator(selector);
-        if ((await button.count()) > 0 && (await button.isVisible())) {
-          console.log(`Botón encontrado con selector: ${selector}`);
-          await button.click();
-          ingresarButtonFound = true;
-          break;
-        }
-      } catch (error) {
-        // Continuar con el siguiente selector
-        continue;
-      }
-    }
-
-    if (!ingresarButtonFound) {
-      // Si no encontramos botón específico, verificar si ya estamos en la página de gestión
-      const gestionElements = [
-        "#txtAliasCertificado",
-        'input[type="file"]',
-        'input[name="alias"]',
-        'input[placeholder*="alias"]',
-      ];
-
-      for (const selector of gestionElements) {
-        if ((await adminPage.locator(selector).count()) > 0) {
-          console.log("Ya estamos en la página de gestión de certificados");
-          ingresarButtonFound = true;
-          break;
-        }
-      }
-    }
-
-    if (!ingresarButtonFound) {
-      throw new Error(
-        "No se pudo encontrar el botón para ingresar a la gestión"
-      );
-    }
-  } catch (error) {
-    console.log("Error al interactuar con la página:", error);
-    throw new Error(
-      `No se pudo acceder a la gestión de certificados: ${error.message}`
-    );
-  }
-
-  // === Esperar a que cargue el formulario de certificados ===
-  await adminPage.waitForTimeout(3000);
-
-  // Verificar que estamos en el formulario correcto
-  const aliasInput = adminPage
-    .locator(
-      '#txtAliasCertificado, input[name="alias"], input[placeholder*="alias"]'
-    )
-    .first();
-  await aliasInput.waitFor({ state: "visible", timeout: 10000 });
-
-  // === Crear alias y subir CSR ===
-  const alias = `CERTIFICADO${razonSocial2}_${Date.now()}`;
-  await aliasInput.fill(alias);
-
-  // Buscar el input file
-  const fileInput = adminPage.locator('input[type="file"]');
-  await fileInput.setInputFiles(csrPath);
-
-  // Buscar y hacer click en el botón de enviar/subir
-  const submitSelectors = [
-    "#cmdIngresar",
-    'input[type="submit"]',
-    'button[type="submit"]',
-    'button:has-text("Enviar")',
-    'button:has-text("Subir")',
-    'button:has-text("Aceptar")',
-    ".btn-primary",
-  ];
-
-  let submitted = false;
-  for (const selector of submitSelectors) {
-    try {
-      const button = adminPage.locator(selector);
-      if ((await button.count()) > 0 && (await button.isVisible())) {
-        console.log(`Enviando formulario con selector: ${selector}`);
-        await button.click();
-        submitted = true;
-        break;
-      }
-    } catch (error) {
-      continue;
-    }
-  }
-
-  if (!submitted) {
-    throw new Error("No se pudo encontrar el botón para enviar el formulario");
-  }
-
-  // === Esperar procesamiento y descargar CRT ===
-  await adminPage.waitForTimeout(5000);
-
-  // Buscar enlace o botón para ver/descargar
-  const viewSelectors = [
-    'a:has-text("Ver")',
-    'a:has-text("Descargar")',
-    'button:has-text("Ver")',
-    'button:has-text("Descargar")',
-    '.btn:has-text("Ver")',
-  ];
-
-  let viewClicked = false;
-  for (const selector of viewSelectors) {
-    try {
-      const viewButton = adminPage.locator(selector).first();
-      if ((await viewButton.count()) > 0 && (await viewButton.isVisible())) {
-        console.log(
-          `Haciendo click en Ver/Descargar con selector: ${selector}`
-        );
-        await viewButton.click();
-        viewClicked = true;
+    for (const selector of botonesIngresar) {
+      const boton = adminPage.locator(selector);
+      if ((await boton.count()) > 0) {
+        console.log(`Botón encontrado con selector: ${selector}`);
+        await boton.click();
+        botonEncontrado = true;
         await adminPage.waitForTimeout(3000);
         break;
       }
-    } catch (error) {
-      continue;
     }
-  }
 
-  if (!viewClicked) {
-    throw new Error(
-      "No se pudo encontrar el botón para ver/descargar el certificado"
-    );
-  }
-
-  // Descargar el certificado
-  const downloadPromise = adminPage.waitForEvent("download");
-
-  const downloadSelectors = [
-    'button:has-text("Descargar")',
-    'a:has-text("Descargar")',
-    'input[value*="Descargar"]',
-    '.btn:has-text("Descargar")',
-  ];
-
-  let downloadClicked = false;
-  for (const selector of downloadSelectors) {
-    try {
-      const downloadButton = adminPage.locator(selector).first();
-      if (
-        (await downloadButton.count()) > 0 &&
-        (await downloadButton.isVisible())
-      ) {
-        console.log(`Descargando con selector: ${selector}`);
-        await downloadButton.click();
-        downloadClicked = true;
-        break;
+    if (!botonEncontrado) {
+      // Verificar si ya estamos en el formulario
+      const aliasInput = adminPage.locator("#txtAliasCertificado");
+      if ((await aliasInput.count()) > 0) {
+        console.log("Ya estamos en el formulario de gestión");
+        botonEncontrado = true;
+      } else {
+        throw new Error(
+          "No se pudo encontrar el botón para ingresar al formulario"
+        );
       }
-    } catch (error) {
-      continue;
     }
+
+    // === FORMULARIO DE GESTIÓN DE CERTIFICADOS ===
+    await adminPage.waitForTimeout(2000);
+
+    // Llenar alias
+    const alias = `CERTIFICADO_${razonSocial2}_${Date.now()}`;
+    await adminPage.locator("#txtAliasCertificado").fill(alias);
+    console.log("Alias completado:", alias);
+
+    // Subir archivo CSR
+    await adminPage.locator('input[type="file"]').setInputFiles(csrPath);
+    console.log("Archivo CSR subido");
+
+    // Enviar formulario
+    await adminPage.locator("#cmdIngresar").click();
+    console.log("Formulario enviado");
+
+    // Esperar procesamiento
+    await adminPage.waitForTimeout(5000);
+
+    // === DESCARGAR CERTIFICADO ===
+    // Hacer click en "Ver"
+    await adminPage.locator('a:has-text("Ver")').first().click();
+    await adminPage.waitForTimeout(3000);
+
+    // Descargar certificado
+    const downloadPromise = adminPage.waitForEvent("download");
+    await adminPage.getByRole("button", { name: "Descargar" }).click();
+    const download = await downloadPromise;
+
+    const crtPath = path.join(
+      csrsFolder,
+      `CertificadoDN_${razonSocial2}_${año}.crt`
+    );
+    await download.saveAs(crtPath);
+    console.log("Certificado descargado:", crtPath);
+
+    // === GENERAR PFX ===
+    const pfxPath = path.join(
+      csrsFolder,
+      `Certificado_${razonSocial2}_${año}.pfx`
+    );
+    execSync(
+      `openssl pkcs12 -export -out "${pfxPath}" -inkey "${clavePrivada}" -in "${crtPath}" -passout pass:`
+    );
+    console.log("Archivo PFX generado:", pfxPath);
+
+    await browser.close();
+
+    return {
+      razonSocial,
+      alias,
+      clavePrivada,
+      csrPath,
+      crtPath,
+      pfxPath,
+      mensaje: "Certificado generado correctamente",
+    };
+  } catch (error) {
+    console.error("Error en la página de administración:", error);
+
+    // Tomar screenshot para debugging
+    await adminPage.screenshot({ path: "error-admin.png" });
+    console.log("Screenshot guardado como error-admin.png");
+
+    await browser.close();
+    throw new Error(`Error en la gestión de certificados: ${error.message}`);
   }
-
-  if (!downloadClicked) {
-    throw new Error("No se pudo encontrar el botón de descarga");
-  }
-
-  const download = await downloadPromise;
-  const crtPath = path.join(
-    csrsFolder,
-    `CertificadoDN_${razonSocial2}_${año}.crt`
-  );
-  await download.saveAs(crtPath);
-
-  // === Generar PFX ===
-  const pfxPath = path.join(
-    csrsFolder,
-    `Certificado_${razonSocial2}_${año}.pfx`
-  );
-  execSync(
-    `openssl pkcs12 -export -out "${pfxPath}" -inkey "${clavePrivada}" -in "${crtPath}" -passout pass:`
-  );
-
-  await browser.close();
-
-  return {
-    razonSocial,
-    alias,
-    clavePrivada,
-    csrPath,
-    crtPath,
-    pfxPath,
-    mensaje: "Certificado generado correctamente",
-  };
 }
 
 // === Endpoint API ===
