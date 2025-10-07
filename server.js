@@ -269,6 +269,15 @@ async function generarCertificado({ CUIT, CUIL, clave }) {
 }
 
 // === Endpoint API ===
+app.get("/api/ping", async (req, res) => {
+  try {
+    res.json({ mensaje: "pong" });
+  } catch (err) {
+    console.error("Error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post("/api/certificado", async (req, res) => {
   try {
     const { CUIT, CUIL, clave } = req.body;
