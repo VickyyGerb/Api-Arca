@@ -203,7 +203,7 @@ async function generarCertificado({ CUIT, CUIL, clave }) {
     await adminPage.waitForTimeout(2000);
 
     // Llenar alias
-    const alias = `CERTIFICADO_${razonSocial2}_${Date.now()}`;
+    const alias = `CERTIFICADO_${razonSocial2}`;
     await adminPage.locator("#txtAliasCertificado").fill(alias);
     console.log("Alias completado:", alias);
 
