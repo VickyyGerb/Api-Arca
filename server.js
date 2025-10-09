@@ -8,7 +8,7 @@ const app = express();
 app.use(express.json());
 
 // === Función que ejecuta el flujo completo ===
-async function generarCertificado({ CUIT, CUIL, clave }) {
+async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
   const año = new Date().getFullYear();
   const csrsFolder = path.join(process.cwd(), "csrs");
   if (!fs.existsSync(csrsFolder)) fs.mkdirSync(csrsFolder, { recursive: true });
@@ -203,7 +203,7 @@ async function generarCertificado({ CUIT, CUIL, clave }) {
     await adminPage.waitForTimeout(2000);
 
     // Llenar alias
-    const alias = `CERTIFICADO_${razonSocial2}`;
+    const alias = `TRIZAP_${cliente}_${año}_${Date.now()}`;
     await adminPage.locator("#txtAliasCertificado").fill(alias);
     console.log("Alias completado:", alias);
 
@@ -238,30 +238,50 @@ async function generarCertificado({ CUIT, CUIL, clave }) {
     // === GENERAR PFX ===
     const pfxPath = path.join(
       csrsFolder,
-      `Certificado_${razonSocial2}_${año}.pfx`
+      `${cliente}_${razonSocial2}_${año}.pfx`
     );
     execSync(
       `openssl pkcs12 -export -out "${pfxPath}" -inkey "${clavePrivada}" -in "${crtPath}" -passout pass:`
     );
     console.log("Archivo PFX generado:", pfxPath);
 
-    await browser.close();
+    try {
+  if (fs.existsSync(clavePrivada)) {
+    fs.unlinkSync(clavePrivada);
+    console.log("Archivo eliminado:", clavePrivada);
+  }
+  if (fs.existsSync(csrPath)) {
+    fs.unlinkSync(csrPath);
+    console.log("Archivo eliminado:", csrPath);
+  }
+  if (fs.existsSync(crtPath)) {
+    fs.unlinkSync(crtPath);
+    console.log("Archivo eliminado:", crtPath);
+  }
+} catch (err) {
+  console.error("Error eliminando archivos temporales:", err);
+}
 
-    return {
-      razonSocial,
-      alias,
-      clavePrivada,
-      csrPath,
-      crtPath,
-      pfxPath,
-      mensaje: "Certificado generado correctamente",
-    };
+await browser.close();
+
+return {
+  razonSocial,
+  alias,
+  pfxPath,
+  mensaje: "Certificado generado correctamente y archivos temporales eliminados",
+};
   } catch (error) {
     console.error("Error en la página de administración:", error);
 
-    // Tomar screenshot para debugging
-    await adminPage.screenshot({ path: "error-admin.png" });
-    console.log("Screenshot guardado como error-admin.png");
+    const errorFileName = `error-${razonSocial2}_${año}.png`;
+    const errorPath = path.join(
+      csrsFolder,
+      errorFileName
+    );
+
+    await adminPage.screenshot({ path: errorPath });
+    console.log(`Screenshot guardado como ${errorFileName}`);
+
 
     await browser.close();
     throw new Error(`Error en la gestión de certificados: ${error.message}`);
@@ -280,20 +300,23 @@ app.get("/api/ping", async (req, res) => {
 
 app.post("/api/certificado", async (req, res) => {
   try {
-    const { CUIT, CUIL, clave } = req.body;
-    if (!CUIT || !CUIL || !clave) {
+    const { cliente, CUIT, CUIL, clave } = req.body;
+
+    if (!cliente || !CUIT || !CUIL || !clave) {
       return res
         .status(400)
-        .json({ error: "Faltan parámetros: CUIT, CUIL, clave" });
+        .json({ error: "Faltan parámetros: cliente, CUIT, CUIL, clave" });
     }
 
-    const resultado = await generarCertificado({ CUIT, CUIL, clave });
+    const resultado = await generarCertificado({ cliente, CUIT, CUIL, clave });
     res.json(resultado);
   } catch (err) {
     console.error("Error en generarCertificado:", err);
     res.status(500).json({ error: err.message });
   }
 });
+
+
 
 // === Iniciar servidor ===
 app.listen(3000, () => {
