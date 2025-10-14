@@ -7,13 +7,16 @@ import path from "path";
 const app = express();
 app.use(express.json());
 
+const csrsFolder = path.join(process.cwd(), "csrs");
+if (!fs.existsSync(csrsFolder)) fs.mkdirSync(csrsFolder, { recursive: true });
+
+const erroresFolder = path.join(csrsFolder, "errores");
+if (!fs.existsSync(erroresFolder))
+  fs.mkdirSync(erroresFolder, { recursive: true });
+
 // === Función utilitaria para guardar evidencia de errores ===
 async function guardarEvidenciaError(page, nombreBase = "error") {
   try {
-    const erroresFolder = path.join(process.cwd(), "errores");
-    if (!fs.existsSync(erroresFolder))
-      fs.mkdirSync(erroresFolder, { recursive: true });
-
     const timestamp = new Date()
       .toISOString()
       .replace(/[:.]/g, "-")
@@ -43,8 +46,6 @@ async function guardarEvidenciaError(page, nombreBase = "error") {
 // === Función que ejecuta el flujo completo ===
 async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
   const año = new Date().getFullYear();
-  const csrsFolder = path.join(process.cwd(), "csrs");
-  if (!fs.existsSync(csrsFolder)) fs.mkdirSync(csrsFolder, { recursive: true });
 
   const browser = await chromium.launch({ headless: false });
   const context = await browser.newContext();
@@ -60,7 +61,22 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
     await loginPage.getByRole("spinbutton").fill(CUIL);
     await loginPage.getByRole("button", { name: "Siguiente" }).click();
 
+    await loginPage.locator('input[type="password"]:visible').fill(clave);
+    await loginPage.getByRole("button", { name: "Ingresar" }).click();
+
     await loginPage.waitForTimeout(1500);
+
+    try {
+      const errorVisible = await loginPage.locator("span#F1\\:msg").isVisible();
+      const texto = await loginPage.locator("span#F1\\:msg").textContent();
+      if (errorVisible) {
+        await guardarEvidenciaError(loginPage, "error_login");
+        throw new Error("Error de login: " + texto?.trim());
+      }
+    } catch (error) {
+      await guardarEvidenciaError(loginPage, "error_verificando_login");
+      throw new Error("Error verificando el login: " + error.message);
+    }
 
     const hayCaptcha = await loginPage.evaluate(() => {
       const imgs = [...document.querySelectorAll("img")];
@@ -82,20 +98,6 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
       throw new Error("Captcha detectado");
     } else {
       console.log("✅ No se detectó captcha, continuando con login...");
-    }
-
-    await loginPage.locator('input[type="password"]:visible').fill(clave);
-    await loginPage.getByRole("button", { name: "Ingresar" }).click();
-
-    try {
-      const errorVisible = await loginPage.locator("span#F1\\:msg").isVisible();
-      if (errorVisible) {
-        await guardarEvidenciaError(loginPage, "error_login");
-        throw new Error("Error de login: Credenciales inválidas");
-      }
-    } catch (error) {
-      await guardarEvidenciaError(loginPage, "error_verificando_login");
-      throw new Error("Error verificando el login: " + error.message);
     }
 
     const razonSocial = (
