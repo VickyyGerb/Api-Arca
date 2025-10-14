@@ -25,6 +25,31 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
 
   await loginPage.getByRole("spinbutton").fill(CUIL);
   await loginPage.getByRole("button", { name: "Siguiente" }).click();
+
+  // === DETECCIÓN DE CAPTCHA ===
+  await loginPage.waitForTimeout(1500); // pequeño delay para permitir carga del captcha
+
+  const hayCaptcha = await loginPage.evaluate(() => {
+    const imgs = [...document.querySelectorAll("img")];
+    const captchaImg = imgs.find(
+      (img) =>
+        img.alt?.toLowerCase().includes("captcha") ||
+        img.src?.toLowerCase().includes("captcha")
+    );
+    const captchaInput = document.querySelector(
+      'input[id*="captcha"], input[name*="captcha"]'
+    );
+    return Boolean(captchaImg || captchaInput);
+  });
+
+  if (hayCaptcha) {
+    console.log("⚠️ Captcha detectado en el login");
+    await browser.close();
+    throw new Error("Captcha detectado");
+  } else {
+    console.log("✅ No se detectó captcha, continuando con login...");
+  }
+
   await loginPage.locator('input[type="password"]:visible').fill(clave);
   await loginPage.getByRole("button", { name: "Ingresar" }).click();
 
@@ -321,13 +346,6 @@ app.post("/api/certificado", async (req, res) => {
   } catch (err) {
     console.error("Error en generarCertificado:", err.message);
     res.status(500).json({ error: err.message });
-    if (browser) {
-      try {
-        await browser.close();
-      } catch (cerr) {
-        console.error("Error al cerrar el navegador:", cerr.message);
-      }
-    }
   }
 });
 
