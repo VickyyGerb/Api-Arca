@@ -28,6 +28,17 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
   await loginPage.locator('input[type="password"]:visible').fill(clave);
   await loginPage.getByRole("button", { name: "Ingresar" }).click();
 
+  try {
+    const errorVisible = await loginPage.locator("span#F1\\:msg").isVisible();
+    if (errorVisible) {
+      await browser.close();
+      throw new Error("Error de login: Credenciales inválidas");
+    }
+  } catch (error) {
+    await browser.close();
+    throw new Error("Error verificando el login: " + error.message);
+  }
+
   const razonSocial = (
     await loginPage
       .locator("nav#cabeceraAFIPlogoNegro strong.text-primary")
@@ -246,42 +257,39 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
     console.log("Archivo PFX generado:", pfxPath);
 
     try {
-  if (fs.existsSync(clavePrivada)) {
-    fs.unlinkSync(clavePrivada);
-    console.log("Archivo eliminado:", clavePrivada);
-  }
-  if (fs.existsSync(csrPath)) {
-    fs.unlinkSync(csrPath);
-    console.log("Archivo eliminado:", csrPath);
-  }
-  if (fs.existsSync(crtPath)) {
-    fs.unlinkSync(crtPath);
-    console.log("Archivo eliminado:", crtPath);
-  }
-} catch (err) {
-  console.error("Error eliminando archivos temporales:", err);
-}
+      if (fs.existsSync(clavePrivada)) {
+        fs.unlinkSync(clavePrivada);
+        console.log("Archivo eliminado:", clavePrivada);
+      }
+      if (fs.existsSync(csrPath)) {
+        fs.unlinkSync(csrPath);
+        console.log("Archivo eliminado:", csrPath);
+      }
+      if (fs.existsSync(crtPath)) {
+        fs.unlinkSync(crtPath);
+        console.log("Archivo eliminado:", crtPath);
+      }
+    } catch (err) {
+      console.error("Error eliminando archivos temporales:", err);
+    }
 
-await browser.close();
+    await browser.close();
 
-return {
-  razonSocial,
-  alias,
-  pfxPath,
-  mensaje: "Certificado generado correctamente y archivos temporales eliminados",
-};
+    return {
+      razonSocial,
+      alias,
+      pfxPath,
+      mensaje:
+        "Certificado generado correctamente y archivos temporales eliminados",
+    };
   } catch (error) {
     console.error("Error en la página de administración:", error);
 
     const errorFileName = `error-${razonSocial2}_${año}.png`;
-    const errorPath = path.join(
-      csrsFolder,
-      errorFileName
-    );
+    const errorPath = path.join(csrsFolder, errorFileName);
 
     await adminPage.screenshot({ path: errorPath });
     console.log(`Screenshot guardado como ${errorFileName}`);
-
 
     await browser.close();
     throw new Error(`Error en la gestión de certificados: ${error.message}`);
@@ -311,12 +319,17 @@ app.post("/api/certificado", async (req, res) => {
     const resultado = await generarCertificado({ cliente, CUIT, CUIL, clave });
     res.json(resultado);
   } catch (err) {
-    console.error("Error en generarCertificado:", err);
+    console.error("Error en generarCertificado:", err.message);
     res.status(500).json({ error: err.message });
+    if (browser) {
+      try {
+        await browser.close();
+      } catch (cerr) {
+        console.error("Error al cerrar el navegador:", cerr.message);
+      }
+    }
   }
 });
-
-
 
 // === Iniciar servidor ===
 app.listen(3000, () => {
