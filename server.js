@@ -68,8 +68,8 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
 
     try {
       const errorVisible = await loginPage.locator("span#F1\\:msg").isVisible();
-      const texto = await loginPage.locator("span#F1\\:msg").textContent();
       if (errorVisible) {
+        const texto = await loginPage.locator("span#F1\\:msg").textContent();
         await guardarEvidenciaError(loginPage, "error_login");
         throw new Error("Error de login: " + texto?.trim());
       }
@@ -262,7 +262,7 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
         `${cliente}_${razonSocial2}_${año}.pfx`
       );
       execSync(
-        `openssl pkcs12 -export -out "${pfxPath}" -inkey "${clavePrivada}" -in "${crtPath}" -passout pass:`
+        `openssl pkcs12 -export -out "${pfxPath}" -inkey "${clavePrivada}" -in "${crtPath}"`
       );
       console.log("Archivo PFX generado:", pfxPath);
 
