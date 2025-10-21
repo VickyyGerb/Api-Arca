@@ -121,7 +121,7 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
     execSync(`openssl genrsa -out "${clavePrivada}" 2048`);
     execSync(
       `openssl req -new -key "${clavePrivada}" ` +
-        `-subj "/C=AR/O=Agencia ${razonSocial2} SAS/CN=Sistema de Gestion/serialNumber=CUIT ${CUIT}" ` +
+        `-subj "/C=AR/O= ${razonSocial2} SAS/CN=Sistema de Gestion/serialNumber=CUIT ${CUIT}" ` +
         `-out "${csrPath}"`
     );
 
