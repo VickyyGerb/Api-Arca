@@ -47,7 +47,7 @@ async function guardarEvidenciaError(page, nombreBase = "error") {
 async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
   const año = new Date().getFullYear();
 
-  const browser = await chromium.launch({ headless: false });
+  const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext();
   const page = await context.newPage();
 
