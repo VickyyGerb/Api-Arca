@@ -55,28 +55,28 @@ async function manejarModalYPopup(page) {
     console.log("No apareció el modal, continuando...");
   }
 
-  let adminPage;
+  let popupPage;
   try {
-    adminPage = await page.waitForEvent("popup", { timeout: 15000 });
+    popupPage = await page.waitForEvent("popup", { timeout: 15000 });
     console.log("Popup de administración abierto correctamente");
   } catch {
     const currentUrl = page.url();
     console.log("URL actual después del click:", currentUrl);
 
     if (currentUrl.includes("certificados") || currentUrl.includes("cot")) {
-      adminPage = page;
+      popupPage = page;
     } else {
       await page.goto(
         "https://serviciosweb.afip.gob.ar/clavefiscal/adminrel/verCertificado.aspx"
       );
-      adminPage = page;
+      popupPage = page;
     }
   }
 
-  await adminPage.waitForLoadState("domcontentloaded");
-  await adminPage.waitForTimeout(5000);
+  await popupPage.waitForLoadState("domcontentloaded");
+  await popupPage.waitForTimeout(5000);
 
-  return adminPage;
+  return popupPage;
 }
 
 // === Función que ejecuta el flujo completo ===
@@ -85,13 +85,13 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
 
   const browser = await chromium.launch({ headless: false });
   const context = await browser.newContext();
-  const page = await context.newPage();
+  const mainPage = await context.newPage();
 
   try {
     // === LOGIN AFIP ===
-    await page.goto("https://www.afip.gob.ar/landing/default.asp");
-    const loginPopupPromise = page.waitForEvent("popup");
-    await page.getByRole("link", { name: "Iniciar sesión" }).click();
+    await mainPage.goto("https://www.afip.gob.ar/landing/default.asp");
+    const loginPopupPromise = mainPage.waitForEvent("popup");
+    await mainPage.getByRole("link", { name: "Iniciar sesión" }).click();
     const loginPage = await loginPopupPromise;
 
     await loginPage.getByRole("spinbutton").fill(CUIL);
@@ -161,13 +161,41 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
         `-out "${csrPath}"`
     );
 
+    // --- BLOQUE RELACIONES 1 ---
+    await mainPage.getByRole("combobox", { name: "Buscador" }).click();
+    await mainPage.getByRole("combobox", { name: "Buscador" }).fill("relacio");
+
+    const adminPopupPromise = mainPage.waitForEvent("popup");
+    await mainPage
+      .getByRole("link", { name: "Administrador de Relaciones" })
+      .click();
+
+    const adminPage = await manejarModalYPopup(mainPage);
+
+    await adminPage.locator("#cmdAgregarServicio").click();
+    await adminPage
+      .getByRole("img", { name: "Agencia de Recaudación y" })
+      .click();
+    await adminPage
+      .getByRole("cell", { name: "Servicios Interactivos", exact: true })
+      .click();
+    await adminPage
+      .getByRole("link", { name: "Administración de Certificados Digitales" })
+      .click();
+    await adminPage.goto(
+      "https://serviciosweb.afip.gob.ar/ClaveFiscal/AdminRel/relationAdd.aspx?representado=27480721050&representante=27480721050&servicename=web://arfe_certificado"
+    );
+    await adminPage
+      .getByRole("button", { name: "Confirme aquí la generación" })
+      .click();
+
     // --- BUSCAR CERTIFICADOS DIGITALES ---
     await loginPage
       .getByRole("combobox", { name: "Buscador" })
       .fill("certificados digitales");
     await loginPage.waitForTimeout(3000);
 
-    let adminPage;
+    let adminCertPage;
 
     try {
       const certificadosLink = loginPage
@@ -194,16 +222,18 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
     }
 
     // --- LLAMADA A NUESTRA FUNCIÓN DE MODAL Y POPUP ---
-    adminPage = await manejarModalYPopup(loginPage);
+    adminCertPage = await manejarModalYPopup(loginPage);
 
     // --- FLUJO DE GESTIÓN DE CERTIFICADOS (igual que antes) ---
-    if ((await adminPage.locator('text="No se puede encontrar"').count()) > 0) {
-      await guardarEvidenciaError(adminPage, "pagina_no_encontrada");
+    if (
+      (await adminCertPage.locator('text="No se puede encontrar"').count()) > 0
+    ) {
+      await guardarEvidenciaError(adminCertPage, "pagina_no_encontrada");
       throw new Error("La página de administración no cargó correctamente");
     }
 
     try {
-      await adminPage.waitForTimeout(3000);
+      await adminCertPage.waitForTimeout(3000);
       const botonesIngresar = [
         "#cmdIngresar",
         'input[type="submit"][value*="Ingresar"]',
@@ -214,47 +244,47 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
 
       let botonEncontrado = false;
       for (const selector of botonesIngresar) {
-        const boton = adminPage.locator(selector);
+        const boton = adminCertPage.locator(selector);
         if ((await boton.count()) > 0) {
           console.log(`Botón encontrado con selector: ${selector}`);
           await boton.click();
           botonEncontrado = true;
-          await adminPage.waitForTimeout(3000);
+          await adminCertPage.waitForTimeout(3000);
           break;
         }
       }
 
       if (!botonEncontrado) {
-        const aliasInput = adminPage.locator("#txtAliasCertificado");
+        const aliasInput = adminCertPage.locator("#txtAliasCertificado");
         if ((await aliasInput.count()) > 0) {
           console.log("Ya estamos en el formulario de gestión");
         } else {
-          await guardarEvidenciaError(adminPage, "boton_no_encontrado");
+          await guardarEvidenciaError(adminCertPage, "boton_no_encontrado");
           throw new Error(
             "No se pudo encontrar el botón para ingresar al formulario"
           );
         }
       }
 
-      await adminPage.waitForTimeout(2000);
+      await adminCertPage.waitForTimeout(2000);
 
       const alias = `TRIZAP_${cliente}_${año}_${Date.now()}`;
-      await adminPage.locator("#txtAliasCertificado").fill(alias);
+      await adminCertPage.locator("#txtAliasCertificado").fill(alias);
       console.log("Alias completado:", alias);
 
-      await adminPage.locator('input[type="file"]').setInputFiles(csrPath);
+      await adminCertPage.locator('input[type="file"]').setInputFiles(csrPath);
       console.log("Archivo CSR subido");
 
-      await adminPage.locator("#cmdIngresar").click();
+      await adminCertPage.locator("#cmdIngresar").click();
       console.log("Formulario enviado");
 
-      await adminPage.waitForTimeout(5000);
+      await adminCertPage.waitForTimeout(5000);
 
-      await adminPage.locator('a:has-text("Ver")').first().click();
-      await adminPage.waitForTimeout(3000);
+      await adminCertPage.locator('a:has-text("Ver")').first().click();
+      await adminCertPage.waitForTimeout(3000);
 
-      const downloadPromise = adminPage.waitForEvent("download");
-      await adminPage.getByRole("button", { name: "Descargar" }).click();
+      const downloadPromise = adminCertPage.waitForEvent("download");
+      await adminCertPage.getByRole("button", { name: "Descargar" }).click();
       const download = await downloadPromise;
 
       const crtPath = path.join(
@@ -263,6 +293,48 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
       );
       await download.saveAs(crtPath);
       console.log("Certificado descargado:", crtPath);
+
+      // --- Administración de relaciones ---
+      await mainPage.getByRole("combobox", { name: "Buscador" }).click();
+      await mainPage.getByRole("combobox", { name: "Buscador" }).fill("admini");
+
+      const adminRelPopupPromise = mainPage.waitForEvent("popup");
+      await mainPage
+        .getByRole("link", { name: "Administrador de Relaciones" })
+        .click();
+      const adminRelPage = await adminRelPopupPromise;
+
+      await adminRelPage.locator("#cmdNuevaRelacion").click();
+      await adminRelPage
+        .getByRole("button", { name: "Modificar el Servicio" })
+        .click();
+      await adminRelPage
+        .getByRole("img", { name: "Agencia de Recaudación y" })
+        .click();
+      await adminRelPage
+        .getByRole("cell", { name: "WebServices", exact: true })
+        .click();
+      await adminRelPage
+        .getByRole("link", { name: "Facturación Electrónica" })
+        .click();
+      await adminRelPage
+        .getByRole("button", { name: "Buscar representante para la" })
+        .click();
+      await adminRelPage
+        .locator("#cboComputadoresAdministrados")
+        .selectOption(
+          "Mjc0ODA3MjEwNTA6VFJJWkFQX0ZJREVMXzIwMjVfMTc2MDAxMDQyNzI4NQ=="
+        );
+      await adminRelPage.goto(
+        "https://serviciosweb.afip.gob.ar/ClaveFiscal/AdminRel/userSearch.aspx?representado=27480721050&serviceName=ws://wsfe"
+      );
+      await adminRelPage.locator("#cmdSeleccionarServicio").click();
+
+      const confirmPopupPromise = adminRelPage.waitForEvent("popup");
+      await adminRelPage
+        .getByRole("button", { name: "Confirme aquí la generación" })
+        .click();
+      const confirmPage = await confirmPopupPromise;
 
       const pfxPath = path.join(
         csrsFolder,
@@ -291,12 +363,12 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
           "Certificado generado correctamente y archivos temporales eliminados",
       };
     } catch (error) {
-      await guardarEvidenciaError(adminPage, "error_admin_certificados");
+      await guardarEvidenciaError(adminCertPage, "error_admin_certificados");
       await browser.close();
       throw new Error(`Error en la gestión de certificados: ${error.message}`);
     }
   } catch (error) {
-    await guardarEvidenciaError(page, "error_general");
+    await guardarEvidenciaError(mainPage, "error_general");
     await browser.close();
     throw error;
   }
