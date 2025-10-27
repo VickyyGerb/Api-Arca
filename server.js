@@ -43,11 +43,47 @@ async function guardarEvidenciaError(page, nombreBase = "error") {
   }
 }
 
+// === Función para manejar modal y popup ===
+async function manejarModalYPopup(page) {
+  try {
+    const modalButton = page.getByRole("button", { name: "Continuar" });
+    await modalButton.waitFor({ state: "visible", timeout: 5000 });
+    console.log("Modal detectado, haciendo click en Continuar...");
+    await modalButton.click();
+    await page.waitForTimeout(2000);
+  } catch {
+    console.log("No apareció el modal, continuando...");
+  }
+
+  let adminPage;
+  try {
+    adminPage = await page.waitForEvent("popup", { timeout: 15000 });
+    console.log("Popup de administración abierto correctamente");
+  } catch {
+    const currentUrl = page.url();
+    console.log("URL actual después del click:", currentUrl);
+
+    if (currentUrl.includes("certificados") || currentUrl.includes("cot")) {
+      adminPage = page;
+    } else {
+      await page.goto(
+        "https://serviciosweb.afip.gob.ar/clavefiscal/adminrel/verCertificado.aspx"
+      );
+      adminPage = page;
+    }
+  }
+
+  await adminPage.waitForLoadState("domcontentloaded");
+  await adminPage.waitForTimeout(5000);
+
+  return adminPage;
+}
+
 // === Función que ejecuta el flujo completo ===
 async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
   const año = new Date().getFullYear();
 
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({ headless: false });
   const context = await browser.newContext();
   const page = await context.newPage();
 
@@ -125,8 +161,7 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
         `-out "${csrPath}"`
     );
 
-    console.log("Buscando servicio de certificados digitales...");
-
+    // --- BUSCAR CERTIFICADOS DIGITALES ---
     await loginPage
       .getByRole("combobox", { name: "Buscador" })
       .fill("certificados digitales");
@@ -158,38 +193,10 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
       }
     }
 
-    let modalAparecio = false;
-    try {
-      const modalButton = loginPage.getByRole("button", { name: "Continuar" });
-      await modalButton.waitFor({ state: "visible", timeout: 5000 });
-      console.log("Modal detectado, haciendo click en Continuar...");
-      await modalButton.click();
-      modalAparecio = true;
-      await loginPage.waitForTimeout(2000);
-    } catch {
-      console.log("No apareció el modal, continuando...");
-    }
+    // --- LLAMADA A NUESTRA FUNCIÓN DE MODAL Y POPUP ---
+    adminPage = await manejarModalYPopup(loginPage);
 
-    try {
-      adminPage = await loginPage.waitForEvent("popup", { timeout: 15000 });
-      console.log("Popup de administración abierto correctamente");
-    } catch {
-      const currentUrl = loginPage.url();
-      console.log("URL actual después del click:", currentUrl);
-
-      if (currentUrl.includes("certificados") || currentUrl.includes("cot")) {
-        adminPage = loginPage;
-      } else {
-        await loginPage.goto(
-          "https://serviciosweb.afip.gob.ar/clavefiscal/adminrel/verCertificado.aspx"
-        );
-        adminPage = loginPage;
-      }
-    }
-
-    await adminPage.waitForLoadState("domcontentloaded");
-    await adminPage.waitForTimeout(5000);
-
+    // --- FLUJO DE GESTIÓN DE CERTIFICADOS (igual que antes) ---
     if ((await adminPage.locator('text="No se puede encontrar"').count()) > 0) {
       await guardarEvidenciaError(adminPage, "pagina_no_encontrada");
       throw new Error("La página de administración no cargó correctamente");
@@ -262,7 +269,7 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
         `${cliente}_${razonSocial2}_${año}.pfx`
       );
       execSync(
-        `openssl pkcs12 -export -out "${pfxPath}" -inkey "${clavePrivada}" -in "${crtPath}"`
+        `openssl pkcs12 -export -out "${pfxPath}" -inkey "${clavePrivada}" -in "${crtPath}" -passout pass:`
       );
       console.log("Archivo PFX generado:", pfxPath);
 
