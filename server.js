@@ -14,7 +14,6 @@ const erroresFolder = path.join(csrsFolder, "errores");
 if (!fs.existsSync(erroresFolder))
   fs.mkdirSync(erroresFolder, { recursive: true });
 
-// === Función utilitaria para guardar evidencia de errores ===
 async function guardarEvidenciaError(page, nombreBase = "error") {
   try {
     const timestamp = new Date()
@@ -395,7 +394,7 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
       console.log("🔄 Navegando a la página de confirmación...");
       // Navegar a la URL de confirmación
       await relacionesPage.goto(
-        `https://serviciosweb.afip.gob.ar/ClaveFiscal/AdminRel/relationAdd.aspx?representado=${CUIL}&serviceName=web://arfe_certificado&representante=${CUIL}&externo=False`
+        `https://serviciosweb.afip.gob.ar/ClaveFiscal/AdminRel/relationAdd.aspx?representado=${CUIT}&serviceName=web://arfe_certificado&representante=${CUIL}&externo=False`
       );
       await relacionesPage.waitForTimeout(3000);
     }
