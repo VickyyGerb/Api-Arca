@@ -806,8 +806,6 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
       // Continuar con el flujo normal...
       await adminRelPage.locator("#cmdSeleccionarServicio").click();
 
-      // === PARTE CRÍTICA CORREGIDA - LAS DOS CONFIRMACIONES ===
-
       // PRIMERA CONFIRMACIÓN
       console.log("⏳ Esperando primer botón de confirmación...");
       await adminRelPage.waitForSelector("#cmdGenerarRelacion", {
