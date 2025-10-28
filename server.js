@@ -395,7 +395,7 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
       console.log("🔄 Navegando a la página de confirmación...");
       // Navegar a la URL de confirmación
       await relacionesPage.goto(
-        "https://serviciosweb.afip.gob.ar/ClaveFiscal/AdminRel/relationAdd.aspx?representado=27480721050&representante=27480721050&servicename=web://arfe_certificado"
+        `https://serviciosweb.afip.gob.ar/ClaveFiscal/AdminRel/relationAdd.aspx?representado=${CUIL}&serviceName=web://arfe_certificado&representante=${CUIL}&externo=False`
       );
       await relacionesPage.waitForTimeout(3000);
     }
