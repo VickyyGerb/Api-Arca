@@ -59,7 +59,10 @@ async function manejarModalYPopup(page) {
 async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
   const año = new Date().getFullYear();
 
-  const browser = await chromium.launch({ headless: false });
+  const browser = await chromium.launch({ 
+    headless: false,
+    timeout: 60000
+  });
   const context = await browser.newContext();
   const mainPage = await context.newPage();
 
@@ -137,13 +140,11 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
         `-out "${csrPath}"`
     );
 
-    // === BLOQUE RELACIONES 1 ===
-    console.log("=== INICIANDO BLOQUE RELACIONES 1 ===");
+    // === BLOQUE CERTIFICADOS DIGITALES ===
+    console.log("=== INICIANDO BLOQUE CERTIFICADOS DIGITALES ===");
 
-    // Usar la página principal después del login (loginPage)
     let currentPage = loginPage;
 
-    // Buscar el campo de búsqueda con múltiples intentos
     const selectoresBuscador = [
       'input[placeholder*="buscar"]',
       'input[name*="search"]',
@@ -152,6 +153,7 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
       "input#buscador",
       "input.buscador",
     ];
+
 
     let campoBuscador = null;
     for (const selector of selectoresBuscador) {
@@ -180,366 +182,6 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
       }
     }
 
-    // Escribir en el campo de búsqueda para relaciones
-    await campoBuscador.click();
-    await campoBuscador.fill("Administrador de Relaciones de clave fiscal");
-    await currentPage.waitForTimeout(3000);
-
-    // Buscar y hacer click en el enlace de administrador de relaciones
-    try {
-      const relacionLink = currentPage
-        .locator('a:has-text("Administrador de relaciones de Clave Fiscal")')
-        .first();
-      await relacionLink.waitFor({ state: "visible", timeout: 10000 });
-      console.log("Enlace de relación encontrado, haciendo click...");
-      await relacionLink.click();
-      await currentPage.waitForTimeout(2000);
-    } catch (error) {
-      console.log(
-        "No se encontró el enlace directo, intentando alternativas..."
-      );
-      try {
-        const linkAlternativo = currentPage
-          .locator('a:has-text("Administrador de relaciones")')
-          .first();
-        await linkAlternativo.click();
-        await currentPage.waitForTimeout(2000);
-      } catch (error2) {
-        await guardarEvidenciaError(currentPage, "error_acceso_relaciones");
-        throw new Error("No se pudo acceder al administrador de relaciones");
-      }
-    }
-
-    // === Manejar modal si aparece ===
-    await manejarModalYPopup(currentPage);
-
-    // === Detectar popup de administración de relaciones ===
-    let relacionesPage;
-    try {
-      relacionesPage = await currentPage.waitForEvent("popup", {
-        timeout: 15000,
-      });
-      console.log("Popup de administración abierto correctamente");
-    } catch {
-      const currentUrl = currentPage.url();
-      console.log("URL actual después del click:", currentUrl);
-
-      if (currentUrl.includes("adminRel/main") || currentUrl.includes("cot")) {
-        relacionesPage = currentPage;
-      } else {
-        await currentPage.goto(
-          "https://serviciosweb.afip.gob.ar/claveFiscal/adminRel/main.aspx"
-        );
-        relacionesPage = currentPage;
-      }
-    }
-    const pages = context.pages();
-    if (pages.length >= 3) {
-      await pages[2].close();
-      console.log("Tercera pestaña cerrada ✅");
-    } else {
-      console.log("No hay 3 pestañas abiertas ❌");
-    }
-    await relacionesPage.waitForLoadState("domcontentloaded");
-    await relacionesPage.waitForTimeout(5000);
-
-    // === ADHERIR SERVICIO DE CERTIFICADOS DIGITALES ===
-    console.log("🔗 Adhiriendo servicio de relaciones");
-
-    // Hacer click en Agregar Servicio
-    await relacionesPage.locator("#cmdAgregarServicio").click();
-    await relacionesPage.waitForTimeout(3000);
-
-    try {
-      await relacionesPage
-        .getByRole("img", { name: "Agencia de Recaudación y" })
-        .click();
-      console.log("✅ Agencia de Recaudación clickeada con getByRole");
-      await relacionesPage.waitForTimeout(3000);
-    } catch {
-      console.log(
-        "❌ No se pudo clicar Agencia con getByRole, intentando selectores..."
-      );
-      console.log("🔍 Buscando Agencia de Recaudación y Control Aduanero");
-      const selectoresAgencia = [
-        'img[alt*="Agencia de Recaudación y Control Aduanero"]',
-        'img[title*="Agencia de Recaudación y Control Aduanero"]',
-        'img[src*="agenciarecaudacion"]',
-        'a:has-text("Agencia de Recaudación y Control Aduanero")',
-        'td:has-text("Agencia de Recaudación y Control Aduanero")',
-        'div:has-text("Agencia de Recaudación y Control Aduanero")',
-      ];
-
-      let agenciaEncontrada = false;
-      for (const selector of selectoresAgencia) {
-        const elemento = relacionesPage.locator(selector).first();
-        if ((await elemento.count()) > 0) {
-          console.log(`✅ Agencia encontrada con selector: ${selector}`);
-          await elemento.click();
-          agenciaEncontrada = true;
-          await relacionesPage.waitForTimeout(3000);
-          break;
-        }
-      }
-
-      if (!agenciaEncontrada) {
-        await guardarEvidenciaError(relacionesPage, "agencia_no_encontrada");
-        throw new Error("No se pudo encontrar la Agencia de Recaudación");
-      }
-    }
-
-    // Click en Servicios Interactivos - usando evaluación JavaScript para encontrar elementos visibles
-    console.log("🔍 Buscando Servicios Interactivos...");
-
-    // Usar JavaScript para encontrar elementos visibles
-    const servicioInteractivoVisible = await relacionesPage.evaluate(() => {
-      const elementos = Array.from(
-        document.querySelectorAll("td, div, a, span")
-      );
-      const servicio = elementos.find(
-        (el) =>
-          el.textContent?.includes("Servicios Interactivos") &&
-          el.offsetParent !== null // Verificar que es visible
-      );
-      return servicio ? true : false;
-    });
-
-    if (servicioInteractivoVisible) {
-      console.log("✅ Servicios Interactivos encontrado y visible");
-      await relacionesPage
-        .locator(
-          'td:has-text("Servicios Interactivos"), div:has-text("Servicios Interactivos"), a:has-text("Servicios Interactivos")'
-        )
-        .first()
-        .click({ force: true });
-      await relacionesPage.waitForTimeout(3000);
-    } else {
-      await guardarEvidenciaError(
-        relacionesPage,
-        "servicios_interactivos_no_encontrados"
-      );
-      throw new Error("No se pudo encontrar Servicios Interactivos visible");
-    }
-
-    // Click en Administración de Certificados Digitales - usando evaluación JavaScript
-    console.log("🔍 Buscando Administración de Certificados Digitales...");
-
-    // Esperar adicional antes de buscar el elemento
-    await relacionesPage.waitForTimeout(2000);
-
-    // Usar JavaScript para encontrar y hacer click en el elemento
-    const certificadoClickExitoso = await relacionesPage.evaluate(() => {
-      const elementos = Array.from(
-        document.querySelectorAll("a, td, div, span")
-      );
-      const certificado = elementos.find(
-        (el) =>
-          el.textContent?.includes(
-            "Administración de Certificados Digitales"
-          ) && el.offsetParent !== null // Verificar que es visible
-      );
-
-      if (certificado) {
-        certificado.click();
-        return true;
-      }
-      return false;
-    });
-
-    if (certificadoClickExitoso) {
-      console.log("✅ Certificados Digitales clickeados via JavaScript");
-      await relacionesPage.waitForTimeout(3000);
-    } else {
-      // Intentar con selectores normales como fallback
-      const selectoresCertificadosDigitales = [
-        'a:has-text("Administración de Certificados Digitales")',
-        'td:has-text("Administración de Certificados Digitales")',
-        'div:has-text("Administración de Certificados Digitales")',
-        'span:has-text("Administración de Certificados Digitales")',
-      ];
-
-      let certificadosEncontrados = false;
-      for (const selector of selectoresCertificadosDigitales) {
-        const elemento = relacionesPage.locator(selector).first();
-        if ((await elemento.count()) > 0) {
-          console.log(
-            `✅ Certificados Digitales encontrados con selector: ${selector}`
-          );
-          await elemento.click({ force: true });
-          certificadosEncontrados = true;
-          await relacionesPage.waitForTimeout(3000);
-          break;
-        }
-      }
-
-      if (!certificadosEncontrados) {
-        await guardarEvidenciaError(
-          relacionesPage,
-          "certificados_digitales_no_encontrados"
-        );
-        throw new Error(
-          "No se pudo encontrar Administración de Certificados Digitales"
-        );
-      }
-    }
-
-    // Verificar si ya estamos en la página de confirmación o necesitamos navegar
-    console.log("🔍 Verificando estado actual de la página...");
-    const currentUrl = await relacionesPage.url();
-    console.log("URL actual:", currentUrl);
-
-    if (currentUrl.includes("relationAdd.aspx")) {
-      console.log("✅ Ya estamos en la página de confirmación");
-    } else {
-      console.log("🔄 Navegando a la página de confirmación...");
-      // Navegar a la URL de confirmación
-      await relacionesPage.goto(
-        `https://serviciosweb.afip.gob.ar/ClaveFiscal/AdminRel/relationAdd.aspx?representado=${CUIT}&serviceName=web://arfe_certificado&representante=${CUIL}&externo=False`
-      );
-      await relacionesPage.waitForTimeout(3000);
-    }
-
-    // Confirmar la generación - usando múltiples estrategias
-    console.log("🔍 Buscando botón de confirmación...");
-
-    // Estrategia 1: Buscar con JavaScript
-    const confirmacionClickExitoso = await relacionesPage.evaluate(() => {
-      const elementos = Array.from(
-        document.querySelectorAll("input, button, a")
-      );
-      const boton = elementos.find(
-        (el) =>
-          (el.value?.includes("Confirme aquí la generación") ||
-            el.textContent?.includes("Confirme aquí la generación") ||
-            el.value?.includes("Confirmar") ||
-            el.textContent?.includes("Confirmar")) &&
-          el.offsetParent !== null
-      );
-
-      if (boton) {
-        boton.click();
-        return true;
-      }
-      return false;
-    });
-
-    if (confirmacionClickExitoso) {
-      console.log("✅ Botón de confirmación clickeado via JavaScript");
-      await relacionesPage.waitForTimeout(3000);
-    } else {
-      // Estrategia 2: Buscar con selectores específicos
-      console.log("🔍 Intentando con selectores específicos...");
-      const selectoresConfirmacion = [
-        'input[value*="Confirme aquí la generación"]',
-        'button:has-text("Confirme aquí la generación")',
-        'a:has-text("Confirme aquí la generación")',
-        'input[type="submit"][value*="Confirm"]',
-        "#btnConfirmar",
-        ".btn-confirmar",
-        'input[value*="Confirmar"]',
-        'button:has-text("Confirmar")',
-        "#cmdConfirmar",
-        'input[onclick*="confirm"]',
-        'button[onclick*="confirm"]',
-      ];
-
-      let confirmacionEncontrada = false;
-      for (const selector of selectoresConfirmacion) {
-        const elemento = relacionesPage.locator(selector);
-        if ((await elemento.count()) > 0) {
-          console.log(
-            `✅ Botón de confirmación encontrado con selector: ${selector}`
-          );
-          await elemento.click({ force: true });
-          confirmacionEncontrada = true;
-          await relacionesPage.waitForTimeout(3000);
-          break;
-        }
-      }
-
-      if (!confirmacionEncontrada) {
-        // Estrategia 3: Buscar cualquier botón que pueda ser de confirmación
-        console.log(
-          "🔍 Buscando cualquier botón que pueda ser de confirmación..."
-        );
-
-        // Intentar con el selector específico que mencionaste
-        try {
-          await relacionesPage.locator("#cmdGenerarRelacion").click();
-          console.log("✅ Botón #cmdGenerarRelacion clickeado");
-          confirmacionEncontrada = true;
-          await relacionesPage.waitForTimeout(3000);
-        } catch {
-          console.log(
-            "❌ No se pudo clickear #cmdGenerarRelacion, intentando otros botones..."
-          );
-
-          const todosLosBotones = await relacionesPage.$$(
-            'input[type="submit"], input[type="button"], button, a.btn'
-          );
-
-          for (const boton of todosLosBotones) {
-            const texto = await relacionesPage.evaluate(
-              (el) => el.value || el.textContent || el.innerText,
-              boton
-            );
-            if (
-              texto &&
-              (texto.includes("Confirm") ||
-                texto.includes("Aceptar") ||
-                texto.includes("Continuar") ||
-                texto.includes("Generar"))
-            ) {
-              console.log(`✅ Botón encontrado con texto: ${texto}`);
-              await boton.click();
-              confirmacionEncontrada = true;
-              await relacionesPage.waitForTimeout(3000);
-              break;
-            }
-          }
-        }
-      }
-
-      if (!confirmacionEncontrada) {
-        // Estrategia 4: Verificar si el servicio ya estaba adherido
-        console.log("🔍 Verificando si el servicio ya estaba adherido...");
-        const mensajeExito = await relacionesPage.evaluate(() => {
-          const elementos = Array.from(
-            document.querySelectorAll("div, span, p")
-          );
-          const mensaje = elementos.find(
-            (el) =>
-              el.textContent?.includes("éxito") ||
-              el.textContent?.includes("exitosa") ||
-              el.textContent?.includes("adherido") ||
-              el.textContent?.includes("adherida")
-          );
-          return mensaje ? mensaje.textContent : null;
-        });
-
-        if (mensajeExito) {
-          console.log(`✅ Servicio ya adherido: ${mensajeExito}`);
-        } else {
-          await guardarEvidenciaError(
-            relacionesPage,
-            "boton_confirmacion_no_encontrado"
-          );
-          throw new Error(
-            "No se pudo encontrar el botón de confirmación. Posiblemente el servicio ya esté adherido o haya un error en la página."
-          );
-        }
-      }
-    }
-
-    console.log("✅ BLOQUE RELACIONES 1 COMPLETADO - SERVICIO ADHERIDO");
-
-    // === BLOQUE CERTIFICADOS DIGITALES ===
-    console.log("=== INICIANDO BLOQUE CERTIFICADOS DIGITALES ===");
-
-    // VOLVER A LA PÁGINA PRINCIPAL ANTES DE BUSCAR CERTIFICADOS
-    console.log("🔄 Volviendo a la página principal...");
-    await currentPage.goto("https://portalcf.cloud.afip.gob.ar/portal/app/");
-    await currentPage.waitForTimeout(3000);
 
     // Buscar el campo de búsqueda nuevamente
     campoBuscador = null;
@@ -566,6 +208,7 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
         );
       }
     }
+    
 
     // Escribir en el campo de búsqueda para certificados
     await campoBuscador.click();
@@ -725,8 +368,8 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
         .getByRole("button", { name: "Modificar el Servicio" })
         .click();
       await adminRelPage
-        .getByRole("img", { name: "Agencia de Recaudación y" })
-        .click();
+        .getByRole("img", { name: "Agencia de Recaudación y Control Aduanero" })
+        .click({ force: true });
 
       // === PARTE CORREGIDA - CLICK EN WEBSERVICES ===
       console.log("⏳ Esperando y haciendo click en WebServices...");
@@ -770,11 +413,11 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
         }
       }
 
-      await adminRelPage.waitForTimeout(2000);
+      await adminRelPage.waitForTimeout(5000);
 
       await adminRelPage
         .getByRole("link", { name: "Facturación Electrónica" })
-        .click();
+        .click({ force: true });
       await adminRelPage
         .getByRole("button", { name: "Buscar representante para la" })
         .click();
