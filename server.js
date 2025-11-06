@@ -346,10 +346,8 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
       );
       await download.saveAs(crtPath);
       console.log("Certificado descargado:", crtPath);
-      // === BLOQUE RELACIONES 2 (Administración de relaciones final) ===
-      console.log("=== INICIANDO BLOQUE RELACIONES 2 ===");
+      console.log("=== INICIANDO BLOQUE RELACIONES ===");
 
-      // VOLVER A LA PÁGINA PRINCIPAL ANTES DE BUSCAR ADMINISTRADOR DE RELACIONES
       console.log("🔄 Volviendo a la página principal para relaciones 2...");
       await mainPage.goto("https://portalcf.cloud.afip.gob.ar/portal/app/");
       await mainPage.waitForTimeout(3000);
@@ -367,19 +365,47 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
       await adminRelPage
         .getByRole("button", { name: "Modificar el Servicio" })
         .click();
-      await adminRelPage
-        .getByRole("img", { name: "Agencia de Recaudación y Control Aduanero" })
-        .click({ force: true });
 
-      // === PARTE CORREGIDA - CLICK EN WEBSERVICES ===
-      console.log("⏳ Esperando y haciendo click en WebServices...");
-
-      // Esperar a que el elemento esté disponible y visible
       await adminRelPage.waitForTimeout(2000);
 
-      // Intentar hacer click en WebServices con diferentes estrategias
+     // Intentar múltiples estrategias en orden
+try {
+  // Estrategia 1: Usar el selector correcto basado en el HTML
+  await adminRelPage.locator('img[alt="Agencia de Recaudación y Control Aduanero"]')
+    .click({ force: true, timeout: 5000 });
+  console.log("✅ Click exitoso con selector alt exacto");
+} catch (error) {
+  console.log("❌ Estrategia 1 falló, intentando estrategia 2...");
+  
+  try {
+    // Estrategia 2: Usar XPath (más específico)
+    await adminRelPage.locator('//img[@alt="Agencia de Recaudación y Control Aduanero"]')
+      .click({ force: true, timeout: 5000 });
+    console.log("✅ Click exitoso con XPath");
+  } catch (error) {
+    console.log("❌ Estrategia 2 falló, intentando estrategia 3...");
+    
+    try {
+      // Estrategia 3: Usar el src de la imagen
+      await adminRelPage.locator('img[src*="afip"]')
+        .click({ force: true, timeout: 5000 });
+      console.log("✅ Click exitoso con selector src");
+    } catch (error) {
+      console.log("❌ Estrategia 3 falló, intentando última estrategia...");
+      
+      // Estrategia 4: Click directo via JavaScript
+      await adminRelPage.evaluate(() => {
+        const img = document.querySelector('img[alt="Agencia de Recaudación y Control Aduanero"]');
+        if (img) img.click();
+      });
+      console.log("✅ Click exitoso via JavaScript");
+    }
+  }
+}
+
+      await adminRelPage.waitForTimeout(2000);
+
       try {
-        // Estrategia 1: Usar el selector exacto del elemento
         const webServicesCell = adminRelPage.locator(
           'td[colspan="2"]:has-text("WebServices")'
         );
@@ -389,7 +415,6 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
       } catch (error) {
         console.log("❌ Primera estrategia falló, intentando alternativa...");
 
-        // Estrategia 2: Usar evaluación JavaScript para forzar el click
         const clickSuccess = await adminRelPage.evaluate(() => {
           const elements = document.querySelectorAll('td[colspan="2"]');
           for (const element of elements) {
@@ -404,7 +429,6 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
         if (clickSuccess) {
           console.log("✅ WebServices clickeado via JavaScript");
         } else {
-          // Estrategia 3: Buscar por texto sin exactitud
           await adminRelPage
             .locator('td:has-text("WebServices")')
             .first()
@@ -422,19 +446,15 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
         .getByRole("button", { name: "Buscar representante para la" })
         .click();
 
-      // === SELECCIÓN DEL COMPUTADOR ADMINISTRADO ===
       console.log("⏳ Esperando selector de computadores administrados...");
 
-      // Esperar a que el select esté disponible
       await adminRelPage.waitForSelector("#cboComputadoresAdministrados", {
         timeout: 15000,
       });
 
-      // Hacer click para abrir el dropdown
       await adminRelPage.click("#cboComputadoresAdministrados");
       await adminRelPage.waitForTimeout(1000);
 
-      // Seleccionar la primera opción
       console.log(
         "📝 Seleccionando primera opción del computador administrado..."
       );
@@ -442,13 +462,10 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
         index: 1,
       });
 
-      // Esperar a que se procese la selección
       await adminRelPage.waitForTimeout(2000);
 
-      // Continuar con el flujo normal...
       await adminRelPage.locator("#cmdSeleccionarServicio").click();
 
-      // PRIMERA CONFIRMACIÓN
       console.log("⏳ Esperando primer botón de confirmación...");
       await adminRelPage.waitForSelector("#cmdGenerarRelacion", {
         timeout: 15000,
