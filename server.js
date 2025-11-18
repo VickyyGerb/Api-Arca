@@ -60,7 +60,7 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
   const año = new Date().getFullYear();
 
   const browser = await chromium.launch({
-    headless: false,
+    headless: true,
     timeout: 60000,
   });
   const context = await browser.newContext();
