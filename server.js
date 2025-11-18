@@ -59,9 +59,9 @@ async function manejarModalYPopup(page) {
 async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
   const año = new Date().getFullYear();
 
-  const browser = await chromium.launch({ 
+  const browser = await chromium.launch({
     headless: false,
-    timeout: 60000
+    timeout: 60000,
   });
   const context = await browser.newContext();
   const mainPage = await context.newPage();
@@ -140,7 +140,6 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
         `-out "${csrPath}"`
     );
 
-    // === BLOQUE CERTIFICADOS DIGITALES ===
     console.log("=== INICIANDO BLOQUE CERTIFICADOS DIGITALES ===");
 
     let currentPage = loginPage;
@@ -318,9 +317,8 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
       await adminCertPage.locator('input[type="file"]').setInputFiles(csrPath);
       console.log("Archivo CSR subido");
 
-      // === ENVÍO DEL FORMULARIO - ESTRATEGIAS MEJORADAS ===
       console.log("🔄 Buscando botón para enviar formulario...");
-      
+
       let formularioEnviado = false;
       const selectoresEnviar = [
         "#cmdIngresar",
@@ -336,17 +334,16 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
         'button:has-text("Generar")',
         'input[name="cmdIngresar"]',
         'button[name="cmdIngresar"]',
-        '.btn-primary',
-        '.btn-success',
+        ".btn-primary",
+        ".btn-success",
         'input[onclick*="submit"]',
-        'button[onclick*="submit"]'
+        'button[onclick*="submit"]',
       ];
 
-      // Estrategia 1: Probar todos los selectores
       for (const selector of selectoresEnviar) {
         try {
           const boton = adminCertPage.locator(selector);
-          if ((await boton.count()) > 0 && await boton.isVisible()) {
+          if ((await boton.count()) > 0 && (await boton.isVisible())) {
             console.log(`✅ Botón de envío encontrado: ${selector}`);
             await boton.click();
             formularioEnviado = true;
@@ -358,15 +355,21 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
         }
       }
 
-      // Estrategia 2: Buscar por texto en todos los botones
       if (!formularioEnviado) {
         console.log("🔍 Buscando botón por texto...");
-        const textosBuscar = ["Enviar", "Aceptar", "Continuar", "Generar", "Ingresar", "Submit"];
-        
+        const textosBuscar = [
+          "Enviar",
+          "Aceptar",
+          "Continuar",
+          "Generar",
+          "Ingresar",
+          "Submit",
+        ];
+
         for (const texto of textosBuscar) {
           try {
             const boton = adminCertPage.locator(`button:has-text("${texto}")`);
-            if ((await boton.count()) > 0 && await boton.isVisible()) {
+            if ((await boton.count()) > 0 && (await boton.isVisible())) {
               console.log(`✅ Botón encontrado por texto: "${texto}"`);
               await boton.click();
               formularioEnviado = true;
@@ -379,15 +382,20 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
         }
       }
 
-      // Estrategia 3: Buscar en inputs
       if (!formularioEnviado) {
         console.log("🔍 Buscando en inputs...");
-        const textosInput = ["Enviar", "Aceptar", "Continuar", "Generar", "Ingresar"];
-        
+        const textosInput = [
+          "Enviar",
+          "Aceptar",
+          "Continuar",
+          "Generar",
+          "Ingresar",
+        ];
+
         for (const texto of textosInput) {
           try {
             const input = adminCertPage.locator(`input[value*="${texto}"]`);
-            if ((await input.count()) > 0 && await input.isVisible()) {
+            if ((await input.count()) > 0 && (await input.isVisible())) {
               console.log(`✅ Input encontrado con valor: "${texto}"`);
               await input.click();
               formularioEnviado = true;
@@ -400,37 +408,45 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
         }
       }
 
-      // Estrategia 4: JavaScript directo
       if (!formularioEnviado) {
         console.log("🔍 Intentando enviar via JavaScript...");
         const enviado = await adminCertPage.evaluate(() => {
-          // Buscar formulario y enviarlo
-          const forms = document.querySelectorAll('form');
+          const forms = document.querySelectorAll("form");
           if (forms.length > 0) {
             forms[0].submit();
             return true;
           }
-          
-          // Buscar botón submit
-          const submitButtons = document.querySelectorAll('input[type="submit"], button[type="submit"]');
+
+          const submitButtons = document.querySelectorAll(
+            'input[type="submit"], button[type="submit"]'
+          );
           if (submitButtons.length > 0) {
             submitButtons[0].click();
             return true;
           }
-          
-          // Buscar cualquier botón que parezca enviar
-          const buttons = document.querySelectorAll('button, input[type="button"]');
+
+          const buttons = document.querySelectorAll(
+            'button, input[type="button"]'
+          );
           for (const button of buttons) {
-            const text = button.textContent?.toLowerCase() || button.value?.toLowerCase() || '';
-            if (text.includes('enviar') || text.includes('aceptar') || text.includes('continuar') || text.includes('generar')) {
+            const text =
+              button.textContent?.toLowerCase() ||
+              button.value?.toLowerCase() ||
+              "";
+            if (
+              text.includes("enviar") ||
+              text.includes("aceptar") ||
+              text.includes("continuar") ||
+              text.includes("generar")
+            ) {
               button.click();
               return true;
             }
           }
-          
+
           return false;
         });
-        
+
         if (enviado) {
           formularioEnviado = true;
           console.log("✅ Formulario enviado via JavaScript");
@@ -439,7 +455,9 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
 
       if (!formularioEnviado) {
         await guardarEvidenciaError(adminCertPage, "error_enviar_formulario");
-        throw new Error("No se pudo encontrar el botón para enviar el formulario");
+        throw new Error(
+          "No se pudo encontrar el botón para enviar el formulario"
+        );
       }
 
       await adminCertPage.waitForTimeout(5000);
@@ -477,7 +495,7 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
         .getByRole("button", { name: "Modificar el Servicio" })
         .click();
 
-      await adminRelPage.waitForTimeout(2000);
+      await adminRelPage.waitForTimeout(4000);
 
       try {
         await adminRelPage
@@ -488,9 +506,7 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
         console.log("❌ Estrategia 1 falló, intentando estrategia 2...");
         try {
           await adminRelPage
-            .locator(
-              '//img[@alt="Agencia de Recaudación y Control Aduanero"]'
-            )
+            .locator('//img[@alt="Agencia de Recaudación y Control Aduanero"]')
             .click({ force: true, timeout: 5000 });
           console.log("✅ Click exitoso con XPath");
         } catch (error) {
@@ -501,7 +517,9 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
               .click({ force: true, timeout: 5000 });
             console.log("✅ Click exitoso con selector src");
           } catch (error) {
-            console.log("❌ Estrategia 3 falló, intentando última estrategia...");
+            console.log(
+              "❌ Estrategia 3 falló, intentando última estrategia..."
+            );
             await adminRelPage.evaluate(() => {
               const img = document.querySelector(
                 'img[alt="Agencia de Recaudación y Control Aduanero"]'
@@ -580,16 +598,20 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
       await adminRelPage.waitForTimeout(5000);
       console.log("✅ BLOQUE RELACIONES COMPLETADO");
 
-      const opensslResult = spawnSync("openssl", [
-        "pkcs12",
-        "-export",
-        "-inkey",
-        clavePrivada,
-        "-in",
-        crtPath,
-        "-passout",
-        "pass:",
-      ], { encoding: "buffer" });
+      const opensslResult = spawnSync(
+        "openssl",
+        [
+          "pkcs12",
+          "-export",
+          "-inkey",
+          clavePrivada,
+          "-in",
+          crtPath,
+          "-passout",
+          "pass:",
+        ],
+        { encoding: "buffer" }
+      );
 
       if (opensslResult.error) throw opensslResult.error;
       if (opensslResult.status !== 0)
@@ -626,31 +648,91 @@ async function generarCertificado({ cliente, CUIT, CUIL, clave }) {
   }
 }
 
-app.get("/api/ping", (req, res) => res.json({ mensaje: "pong" }));
+app.get("/api/ping", (req, res) => {
+  console.log("✅ Ping recibido");
+  res.json({ mensaje: "pong", status: "servidor activo" });
+});
 
-// Cambiar de POST a GET con query parameters
+// Endpoint principal CORREGIDO
 app.get("/api/certificado", async (req, res) => {
+  console.log("📥 Solicitud recibida en /api/certificado");
+  console.log("Query parameters:", req.query);
+
   try {
     const { cliente, CUIT, CUIL, clave } = req.query;
+
     if (!cliente || !CUIT || !CUIL || !clave) {
-      return res.status(400).json({ error: "Faltan parámetros" });
+      console.log("❌ Parámetros faltantes");
+      return res.status(400).json({
+        error: "Faltan parámetros: cliente, CUIT, CUIL, clave",
+        recibido: {
+          cliente,
+          CUIT,
+          CUIL,
+          clave: clave ? "PROVIDED" : "MISSING",
+        },
+      });
     }
+
+    console.log("🔄 Iniciando generación de certificado...");
 
     const resultado = await generarCertificado({ cliente, CUIT, CUIL, clave });
 
-    res.writeHead(200, {
-      "Content-Type": "application/x-pkcs12",
-      "Content-Disposition": `attachment; filename="${resultado.fileName}"`,
-      "Content-Length": resultado.pfxBuffer.length,
-    });
+    console.log("✅ Certificado generado exitosamente");
+    console.log("📁 Archivo:", resultado.fileName);
+    console.log("📏 Tamaño:", resultado.pfxBuffer.length, "bytes");
 
-    res.end(Buffer.from(resultado.pfxBuffer)); 
+    res.setHeader("Content-Type", "application/x-pkcs12");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${resultado.fileName}"`
+    );
+    res.setHeader("Content-Length", resultado.pfxBuffer.length);
+
+    // Enviar el buffer directamente
+    res.send(resultado.pfxBuffer);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("💥 Error en endpoint /api/certificado:", err.message);
+    console.error("Stack trace:", err.stack);
+
+    res.status(500).json({
+      error: err.message,
+      stack: process.env.NODE_ENV === "development" ? err.stack : undefined,
+    });
   }
 });
 
+// Endpoint de prueba adicional
+app.get("/api/test", (req, res) => {
+  console.log("🧪 Test endpoint llamado");
+  res.json({
+    mensaje: "Test exitoso",
+    timestamp: new Date().toISOString(),
+    parametros: req.query,
+  });
+});
+
+// Manejo de rutas no encontradas
+app.use((req, res) => {
+  console.log(`❌ Ruta no encontrada: ${req.method} ${req.url}`);
+  res.status(404).json({
+    error: "Endpoint no encontrado",
+    ruta: req.url,
+    metodo: req.method,
+    endpoints_disponibles: [
+      "GET /api/ping",
+      "GET /api/certificado?cliente=...&CUIT=...&CUIL=...&clave=...",
+      "GET /api/test",
+    ],
+  });
+});
 
 app.listen(3000, () => {
-  console.log("API corriendo en http://localhost:3000");
+  console.log("🚀 API corriendo en http://localhost:3000");
+  console.log("📋 Endpoints disponibles:");
+  console.log("   GET  /api/ping");
+  console.log(
+    "   GET  /api/certificado?cliente=...&CUIT=...&CUIL=...&clave=..."
+  );
+  console.log("   GET  /api/test");
 });
